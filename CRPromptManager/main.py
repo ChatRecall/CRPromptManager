@@ -13,6 +13,8 @@ from functools import partial
 
 import logging
 
+# from WrapAIVenice.data.constants import DEFAULT_SYSTEM_PROMPT
+
 logging.basicConfig(
     level=logging.INFO,
     format = '%(name)s - %(levelname)s - %(message)s (line: %(lineno)d)',
@@ -38,6 +40,8 @@ from dialog_prompt_runner import PromptRunDialog
 from file_backup import FileBackupManager
 
 
+DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant."
+
 class PromptEditor(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -45,10 +49,7 @@ class PromptEditor(QMainWindow):
         self.setGeometry(100, 100, 800, 600)
 
         # Extract prompt data
-        self.system_prompt = None
-        # self.response = None
         self.venice_prompt_runner = None
-        self.interaction_system_prompt = "You are a helpful assistant."  # Default system message
 
         # Dialogs
         self.dialog_about = AboutDialog(self)
@@ -86,12 +87,13 @@ class PromptEditor(QMainWindow):
 
         ## Prompt text widgets
         self.prompt_type = QComboBox()
-        # self.prompt_form = QComboBox()
-        # self.prompt_response = QTextEdit(readOnly=True)
         self.prompt_text = QTextEdit()
         self.full_response_button = QPushButton("Full Response")
 
         ## Attribute widgets
+        self.system_prompt_label = QLabel("System Prompt")
+        self.system_prompt_use = QCheckBox()
+        self.system_prompt_input = QLineEdit("You are a helpful AI Assistant")
         self.temperature_use = QCheckBox()
         self.temperature_input = QDoubleSpinBox()
         self.top_p_use = QCheckBox()
@@ -177,12 +179,6 @@ class PromptEditor(QMainWindow):
             WSGridRecord(widget=self.prompt_type,
                          position=WSGridPosition(row=0, column=1),
                          col_stretch=0),
-            # WSGridRecord(widget=QLabel("Prompt Form:"),
-            #              position=WSGridPosition(row=1, column=0),
-            #              col_stretch=0),
-            # WSGridRecord(widget=self.prompt_form,
-            #              position=WSGridPosition(row=1, column=1),
-            #              col_stretch=0),
 
             WSGridRecord(widget=QLabel("Prompt"),
                          position=WSGridPosition(row=4, column=0),
@@ -251,6 +247,17 @@ class PromptEditor(QMainWindow):
         self.venice_parameters_groupbox = self.venice_parameters_grid.as_groupbox_widget("Venice Parameters")
 
         attribute_widgets = [
+            WSGridRecord(widget=self.system_prompt_label,
+                         position=WSGridPosition(row=0, column=0),
+                         col_stretch=0),
+            WSGridRecord(widget=self.system_prompt_use,
+                         position=WSGridPosition(row=0, column=1),
+                         col_stretch=0),
+            WSGridRecord(widget=self.system_prompt_input,
+                         position=WSGridPosition(row=0, column=2),
+                         col_stretch=0),
+
+
             WSGridRecord(widget=QLabel("Temperature"),
                          position=WSGridPosition(row=1, column=0),
                          col_stretch=0),
@@ -459,10 +466,8 @@ class PromptEditor(QMainWindow):
         self.frequency_penalty_input.setRange(-2.0, 2.0)
         self.presence_penalty_input.setRange(-2.0, 2.0)
         self.max_tokens_input.setMaximum(10000)
-        # self.enable_web_search_input.addItems(["auto", "on", "off"])
         self.enable_web_search_input.addItems(WEB_SEARCH_MODES)
         self.prompt_type.addItems(["user", "system"])
-        # self.prompt_form.addItems(["Question", "Chat"])
         self.response_format_type.addItems(["json_schema"])
 
     def connect_signals(self):
@@ -495,7 +500,6 @@ class PromptEditor(QMainWindow):
                     self.prompt_list.setCurrentItem(first_item)
                     # Since you rely on set_prompt() to fill the widgets, call it directly:
                     self.set_prompt(first_item)
-        # self.toggle_venice_params()
 
     # Status bar methods
     def update_status_bar(self, message="Welcome to ChatRecall Prompt Manager", duration=5000):
@@ -507,6 +511,7 @@ class PromptEditor(QMainWindow):
 
     # Misc signals
     def select_system_prompt(self, state):
+        self.toggle_system_prompt()
         if state == 2:  # Qt.Checked
             system_prompts = [
                 name for name, data in self.prompts.items()
@@ -515,10 +520,16 @@ class PromptEditor(QMainWindow):
             self.custom_system_prompt_input.addItems(system_prompts)
         else:
             self.custom_system_prompt_input.clear()
-            # print("Checkbox is not checked")
 
     def toggle_venice_params(self):
         self.venice_parameters_groupbox.setEnabled(self.include_venice_params.isChecked())
+
+    def toggle_system_prompt(self):
+        enabled = not self.custom_system_prompt_use.isChecked()
+        self.system_prompt_label.setEnabled(enabled)
+        self.system_prompt_use.setEnabled(enabled)
+        self.system_prompt_input.setEnabled(enabled)
+        self.system_prompt_use.setChecked(False)
 
     # Tab methods
     def toggle_response_tab(self, state):
@@ -565,7 +576,13 @@ class PromptEditor(QMainWindow):
 
         def set_value_and_checkbox(field, checkbox, value, default):
             checkbox.setChecked(value is not None)
-            field.setValue(value if value is not None else default)
+            if hasattr(field, "setValue"):
+                field.setValue(value if value is not None else default)
+            elif hasattr(field, "setText"):
+                field.setText(str(value if value is not None else default))
+
+        set_value_and_checkbox(self.system_prompt_input, self.system_prompt_use, attributes.get("system_prompt"),
+                               DEFAULT_SYSTEM_PROMPT)
 
         set_value_and_checkbox(self.temperature_input, self.temperature_use, attributes.get("temperature"), 0.0)
         set_value_and_checkbox(self.top_p_input, self.top_p_use, attributes.get("top_p"), 1.0)
@@ -631,6 +648,7 @@ class PromptEditor(QMainWindow):
                 default_attributes[key] = field.value() if isinstance(field,
                                                                       (QSpinBox, QDoubleSpinBox)) else field.text()
 
+        add_if_checked(self.system_prompt_input, self.system_prompt_use, "system_prompt")
         add_if_checked(self.temperature_input, self.temperature_use, "temperature")
         add_if_checked(self.top_p_input, self.top_p_use, "top_p")
         add_if_checked(self.frequency_penalty_input, self.frequency_penalty_use, "frequency_penalty")
@@ -724,7 +742,8 @@ class PromptEditor(QMainWindow):
         prompt_data = self.prompts.get(self.current_prompt, {})
         attributes = prompt_data.get("default_attributes", {})
         prompt_text = self.prompt_text.toPlainText()
-        system_prompt = self.interaction_system_prompt
+
+        system_prompt = attributes.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
 
         # 🧠 Extract Venice Parameters and custom prompt name
         custom_system_prompt_name = attributes.pop("custom_system_prompt_name", None)
@@ -746,7 +765,7 @@ class PromptEditor(QMainWindow):
                 )
                 return
 
-        logger.debug(f"System Prompt:\n{system_prompt}")
+        logger.info(f"System Prompt:\n{system_prompt}")
 
         dialog = PromptRunDialog(
             api_key=self.api_key,
