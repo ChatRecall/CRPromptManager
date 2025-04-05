@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 
 import sys
 import json
+from functools import partial
 
 import logging
 
@@ -28,12 +29,13 @@ from WrapSideSix.toolbars.toolbar_icon import WSToolbarIcon, DropdownItem
 # from WrapSideSix.widgets.line_edit_widget import WSLineButton
 from WrapSideSix.widgets.list_widget import WSListSelectionWidget
 
-from WrapAIVenice.data.constants import CUSTOM_SYSTEM_PROMPT
+from WrapAIVenice import VeniceParameters, WEB_SEARCH_MODES
 from WrapConfig import RuntimeConfig, INIHandler, SecretsManager
 
 from dialog_about import AboutDialog
 from dialog_settings import SettingsDialog
 from dialog_prompt_runner import PromptRunDialog
+from file_backup import FileBackupManager
 
 
 class PromptEditor(QMainWindow):
@@ -75,14 +77,16 @@ class PromptEditor(QMainWindow):
         self.attribute_grid =  WSGridLayoutHandler()
         self.response_format_grid = WSGridLayoutHandler()
         self.notes_grid = WSGridLayoutHandler()
+        self.venice_parameters_grid = WSGridLayoutHandler()
+        self.venice_parameters_groupbox = None  # QGroupBox()
 
         # Widgets
         ## Prompt Library widgets
         self.prompt_list = WSListSelectionWidget()
 
         ## Prompt text widgets
-        # self.prompt_form = QComboBox()
         self.prompt_type = QComboBox()
+        # self.prompt_form = QComboBox()
         # self.prompt_response = QTextEdit(readOnly=True)
         self.prompt_text = QTextEdit()
         self.full_response_button = QPushButton("Full Response")
@@ -100,7 +104,8 @@ class PromptEditor(QMainWindow):
         self.max_tokens_input = QSpinBox()
 
         self.include_venice_params = QCheckBox()
-        self.use_custom_system_prompt = QCheckBox()
+        self.custom_system_prompt_use = QCheckBox()
+        self.custom_system_prompt_input = QComboBox()
         self.enable_web_search_use = QCheckBox()
         self.enable_web_search_input = QComboBox()
         self.character_slug_use = QCheckBox()
@@ -155,9 +160,6 @@ class PromptEditor(QMainWindow):
 
     # Support init methods
     def init_ui(self):
-        # Left panel (Prompt List)
-        # self.prompt_list.itemClicked.connect(self.load_prompt)
-
         prompt_library_widgets = [
             WSGridRecord(widget=QLabel("Prompt Library:"),
                          position=WSGridPosition(row=0, column=0),
@@ -175,6 +177,12 @@ class PromptEditor(QMainWindow):
             WSGridRecord(widget=self.prompt_type,
                          position=WSGridPosition(row=0, column=1),
                          col_stretch=0),
+            # WSGridRecord(widget=QLabel("Prompt Form:"),
+            #              position=WSGridPosition(row=1, column=0),
+            #              col_stretch=0),
+            # WSGridRecord(widget=self.prompt_form,
+            #              position=WSGridPosition(row=1, column=1),
+            #              col_stretch=0),
 
             WSGridRecord(widget=QLabel("Prompt"),
                          position=WSGridPosition(row=4, column=0),
@@ -186,6 +194,61 @@ class PromptEditor(QMainWindow):
         ]
         self.prompt_grid.add_widget_records(prompt_widgets)
 
+        venice_custom_attributes_widgets = [
+            WSGridRecord(widget=QLabel("Custom System Prompt"),
+                         position=WSGridPosition(row=1, column=0),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.custom_system_prompt_use,
+                         position=WSGridPosition(row=1, column=1),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.custom_system_prompt_input,
+                         position=WSGridPosition(row=1, column=2),
+                         col_stretch=0,
+                         row_stretch=0),
+
+            WSGridRecord(widget=QLabel("Enable Web Search"),
+                         position=WSGridPosition(row=2, column=0),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.enable_web_search_use,
+                         position=WSGridPosition(row=2, column=1),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.enable_web_search_input,
+                         position=WSGridPosition(row=2, column=2),
+                         col_stretch=0,
+                         row_stretch=0),
+
+            WSGridRecord(widget=QLabel("Character Slug"),
+                         position=WSGridPosition(row=3, column=0),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.character_slug_use,
+                         position=WSGridPosition(row=3, column=1),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.character_slug_input,
+                         position=WSGridPosition(row=3, column=2),
+                         col_stretch=0,
+                         row_stretch=0),
+
+            WSGridRecord(widget=QLabel("Response Format"),
+                         position=WSGridPosition(row=4, column=0),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.response_format_use,
+                         position=WSGridPosition(row=4, column=1),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.response_format_type,
+                         position=WSGridPosition(row=4, column=2),
+                         col_stretch=0,
+                         row_stretch=0),
+        ]
+        self.venice_parameters_grid.add_widget_records(venice_custom_attributes_widgets)
+        self.venice_parameters_groupbox = self.venice_parameters_grid.as_groupbox_widget("Venice Parameters")
 
         attribute_widgets = [
             WSGridRecord(widget=QLabel("Temperature"),
@@ -238,49 +301,22 @@ class PromptEditor(QMainWindow):
                          position=WSGridPosition(row=5, column=2),
                          col_stretch=0),
 
-            WSGridRecord(widget=QLabel("Include Venice Prompt"),
+            WSGridRecord(widget=QLabel("Include Venice Parameters"),
                          position=WSGridPosition(row=6, column=0),
                          col_stretch=0),
             WSGridRecord(widget=self.include_venice_params,
                          position=WSGridPosition(row=6, column=1),
                          col_stretch=0),
+            WSGridRecord(widget=QLabel("\n\n"),
+                         position=WSGridPosition(row=6, column=2),
+                         col_stretch=0),
 
-            WSGridRecord(widget=QLabel("Use Custom System Prompt"),
+            WSGridRecord(widget=self.venice_parameters_groupbox,
                          position=WSGridPosition(row=7, column=0),
-                         col_stretch=0),
-            WSGridRecord(widget=self.use_custom_system_prompt,
-                         position=WSGridPosition(row=7, column=1),
-                         col_stretch=0),
-
-            WSGridRecord(widget=QLabel("Enable Web Search"),
-                         position=WSGridPosition(row=8, column=0),
-                         col_stretch=0),
-            WSGridRecord(widget=self.enable_web_search_use,
-                         position=WSGridPosition(row=8, column=1),
-                         col_stretch=0),
-            WSGridRecord(widget=self.enable_web_search_input,
-                         position=WSGridPosition(row=8, column=2),
-                         col_stretch=0),
-
-            WSGridRecord(widget=QLabel("Character Slug"),
-                         position=WSGridPosition(row=9, column=0),
-                         col_stretch=0),
-            WSGridRecord(widget=self.character_slug_use,
-                         position=WSGridPosition(row=9, column=1),
-                         col_stretch=0),
-            WSGridRecord(widget=self.character_slug_input,
-                         position=WSGridPosition(row=9, column=2),
-                         col_stretch=0),
-
-            WSGridRecord(widget=QLabel("Response Format"),
-                         position=WSGridPosition(row=10, column=0),
-                         col_stretch=0),
-            WSGridRecord(widget=self.response_format_use,
-                         position=WSGridPosition(row=10, column=1),
-                         col_stretch=0),
-            WSGridRecord(widget=self.response_format_type,
-                         position=WSGridPosition(row=10, column=2),
-                         col_stretch=0),
+                         col_stretch=0,
+                         row_stretch=0,
+                         col_span=3,
+                         alignment=Qt.AlignmentFlag.AlignTop),
         ]
 
         self.attribute_grid.add_widget_records(attribute_widgets)
@@ -320,6 +356,7 @@ class PromptEditor(QMainWindow):
         self.main_grid.add_widget_records(main_widgets)
 
         self.setCentralWidget(self.main_grid.as_widget())
+        self.toggle_venice_params()
 
     def init_toolbar(self):
         self.addToolBar(self.toolbar)
@@ -346,33 +383,44 @@ class PromptEditor(QMainWindow):
             self.save_prompts,
             ":/icons/mat_des/save_24dp.png")
 
-        self.toolbar.add_action_to_toolbar(
-            "build",
-            "Build Prompt",
-            "Build prompt",
-            self.show_not_implemented_dialog,
-            ":/icons/mat_des/build_24dp.png")
+        # self.toolbar.add_action_to_toolbar(
+        #     "build",
+        #     "Build Prompt",
+        #     "Build prompt",
+        #     self.show_not_implemented_dialog,
+        #     ":/icons/mat_des/build_24dp.png")
 
-        self.toolbar.add_action_to_toolbar(
-            "run",
-            "Run Prompt",
-            "Execute prompt",
-            self.run_prompt,
-            ":/icons/mat_des/play_arrow_24dp.png")
+        dropdown_run_icons = [
+            DropdownItem("Question", partial(self.run_prompt, "Question")),
+            DropdownItem("Chat", partial(self.run_prompt, "Chat")),
+        ]
 
-        self.toolbar.add_action_to_toolbar(
-            "refresh",
-            "Refresh",
-            "Refresh screen",
-            self.show_not_implemented_dialog,
-            ":/icons/mat_des/refresh_24dp.png")
+        self.toolbar.update_dropdown_menu(
+            name="Run",
+            icon=":/icons/mat_des/play_arrow_24dp.png",
+            dropdown_definitions=dropdown_run_icons
+        )
 
-        self.toolbar.add_action_to_toolbar(
-            "filter",
-            "Filter",
-            "Toggle Filter",
-            self.show_not_implemented_dialog,
-            ":/icons/mat_des/filter_alt_24dp.png")
+        # self.toolbar.add_action_to_toolbar(
+        #     "run",
+        #     "Run Prompt",
+        #     "Execute prompt",
+        #     self.run_prompt,
+        #     ":/icons/mat_des/play_arrow_24dp.png")
+
+        # self.toolbar.add_action_to_toolbar(
+        #     "refresh",
+        #     "Refresh",
+        #     "Refresh screen",
+        #     self.show_not_implemented_dialog,
+        #     ":/icons/mat_des/refresh_24dp.png")
+
+        # self.toolbar.add_action_to_toolbar(
+        #     "filter",
+        #     "Filter",
+        #     "Toggle Filter",
+        #     self.show_not_implemented_dialog,
+        #     ":/icons/mat_des/filter_alt_24dp.png")
 
         self.toolbar.add_action_to_toolbar(
             "settings",
@@ -399,7 +447,7 @@ class PromptEditor(QMainWindow):
             self.close,
             ":/icons/mat_des/exit_to_app_24dp.png")
 
-        self.toolbar.hide_action_by_name("filter")
+        # self.toolbar.hide_action_by_name("filter")
 
     def init_status_bar(self):
         self.setStatusBar(self.status_bar)
@@ -411,14 +459,19 @@ class PromptEditor(QMainWindow):
         self.frequency_penalty_input.setRange(-2.0, 2.0)
         self.presence_penalty_input.setRange(-2.0, 2.0)
         self.max_tokens_input.setMaximum(10000)
-        self.enable_web_search_input.addItems(["auto", "on", "off"])
+        # self.enable_web_search_input.addItems(["auto", "on", "off"])
+        self.enable_web_search_input.addItems(WEB_SEARCH_MODES)
         self.prompt_type.addItems(["user", "system"])
+        # self.prompt_form.addItems(["Question", "Chat"])
         self.response_format_type.addItems(["json_schema"])
 
     def connect_signals(self):
         self.prompt_list.itemClicked.connect(self.set_prompt)
         self.response_format_use.stateChanged.connect(self.toggle_response_tab)
         self.prompt_type.currentTextChanged.connect(self.on_prompt_type_changed)
+
+        self.custom_system_prompt_use.stateChanged.connect(self.select_system_prompt)
+        self.include_venice_params.stateChanged.connect(self.toggle_venice_params)
 
     def init_defaults(self):
         # self.api_key = self.ini_handler.read_value('API-Keys', 'venice')
@@ -442,6 +495,7 @@ class PromptEditor(QMainWindow):
                     self.prompt_list.setCurrentItem(first_item)
                     # Since you rely on set_prompt() to fill the widgets, call it directly:
                     self.set_prompt(first_item)
+        # self.toggle_venice_params()
 
     # Status bar methods
     def update_status_bar(self, message="Welcome to ChatRecall Prompt Manager", duration=5000):
@@ -450,6 +504,21 @@ class PromptEditor(QMainWindow):
 
     def clear_status_bar(self):
         self.statusBar().clearMessage()
+
+    # Misc signals
+    def select_system_prompt(self, state):
+        if state == 2:  # Qt.Checked
+            system_prompts = [
+                name for name, data in self.prompts.items()
+                if data.get("type") == "system"]
+            self.custom_system_prompt_input.clear()
+            self.custom_system_prompt_input.addItems(system_prompts)
+        else:
+            self.custom_system_prompt_input.clear()
+            # print("Checkbox is not checked")
+
+    def toggle_venice_params(self):
+        self.venice_parameters_groupbox.setEnabled(self.include_venice_params.isChecked())
 
     # Tab methods
     def toggle_response_tab(self, state):
@@ -508,18 +577,36 @@ class PromptEditor(QMainWindow):
 
         venice_params = attributes.get("venice_parameters", {})
 
-        # self.include_venice_prompt.setChecked("include_venice_system_prompt" in venice_params)
-        self.include_venice_params.setChecked(venice_params.get("include_venice_system_prompt", False))
+        # 🧠 Include Venice Param Master Toggle
+        self.include_venice_params.setChecked(bool(venice_params))
 
-        self.enable_web_search_use.setChecked("enable_web_search" in venice_params)
-        self.enable_web_search_input.setCurrentText(venice_params.get("enable_web_search", "auto"))
+        # 🧠 Custom System Prompt
+        custom_prompt_name = attributes.get("custom_system_prompt_name")
+        self.custom_system_prompt_use.setChecked(custom_prompt_name is not None)
+        if custom_prompt_name:
+            self.custom_system_prompt_input.setCurrentText(custom_prompt_name)
 
-        self.character_slug_use.setChecked("character_slug" in venice_params)
-        self.character_slug_input.setText(venice_params.get("character_slug", ""))
+        # 🧠 Web Search
+        has_web_search = "enable_web_search" in venice_params
+        self.enable_web_search_use.setChecked(has_web_search)
+        if has_web_search:
+            # self.enable_web_search_input.setCurrentText(venice_params["enable_web_search"])
+            web_mode = venice_params.get("enable_web_search", "")
+            self.enable_web_search_input.setCurrentText(web_mode)
 
-        self.response_format_use.setChecked("response_format" in venice_params)
-        self.response_format_input.setText(json.dumps(venice_params.get("response_format", {}),
-                                                      indent=4) if "response_format" in venice_params else "")
+        # 🧠 Character Slug
+        has_slug = "character_slug" in venice_params
+        self.character_slug_use.setChecked(has_slug)
+        if has_slug:
+            self.character_slug_input.setText(venice_params["character_slug"])
+
+        # 🧠 Response Format
+        has_response_format = "response_format" in venice_params
+        self.response_format_use.setChecked(has_response_format)
+        if has_response_format:
+            self.response_format_input.setText(json.dumps(
+                venice_params["response_format"], indent=4
+            ))
 
     def update_prompt_list(self):
         self.prompt_list.clear()
@@ -550,25 +637,28 @@ class PromptEditor(QMainWindow):
         add_if_checked(self.presence_penalty_input, self.presence_penalty_use, "presence_penalty")
         add_if_checked(self.max_tokens_input, self.max_tokens_use, "max_completion_tokens")
 
-        venice_parameters = {}
-
         if self.include_venice_params.isChecked():
-            venice_parameters["include_venice_system_prompt"] = True
+            venice_parameters = {}
 
-            if self.use_custom_system_prompt.isChecked():
+            if self.custom_system_prompt_use.isChecked():
                 venice_parameters["include_venice_system_prompt"] = True
+                default_attributes["custom_system_prompt_name"] = self.custom_system_prompt_input.currentText()
 
             if self.enable_web_search_use.isChecked():
-                venice_parameters["enable_web_search"] = self.enable_web_search_input.currentText()
+                # venice_parameters["enable_web_search"] = self.enable_web_search_input.currentText()
+                selected = self.enable_web_search_input.currentText()
+                venice_parameters["enable_web_search"] = selected
 
             if self.character_slug_use.isChecked():
                 venice_parameters["character_slug"] = self.character_slug_input.text()
 
-        if self.response_format_use.isChecked():
-            venice_parameters["response_format"] = response_format_data
+            if self.response_format_use.isChecked():
+                venice_parameters["response_format"] = response_format_data
 
-        if venice_parameters:
             default_attributes["venice_parameters"] = venice_parameters
+
+        # if venice_parameters:
+        #     default_attributes["venice_parameters"] = venice_parameters
 
         self.prompts[self.current_prompt] = {
             "prompt_text": self.prompt_text.toPlainText(),
@@ -607,15 +697,19 @@ class PromptEditor(QMainWindow):
             self.prompt_library_file = file_path
 
         try:
+            # Backup json file
+            backup = FileBackupManager(self.prompt_library_file)
+            backup.backup_current_file()
+
             # Write all prompts to the JSON file
             with open(self.prompt_library_file, "w", encoding="utf-8") as file:
-                json.dump({"data": self.prompts}, file, indent=4)   # type: ignore
+                json.dump({"data": self.prompts}, file, indent=4)
 
             self.update_status_bar(f"Prompts saved successfully to {self.prompt_library_file}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save prompts: {e}")
 
-    def run_prompt(self):
+    def run_prompt(self, response_type):
         if self.prompt_type.currentText() == "system":
             QMessageBox.warning(self, "System Prompt Selected", "Please select a user prompt to run.")
             return
@@ -624,18 +718,41 @@ class PromptEditor(QMainWindow):
             QMessageBox.warning(self, "No Prompt Selected", "Please select a prompt to run.")
             return
 
+        # 🔧 Ensure updated UI values are saved before we load them
+        self.update_current_prompt_data()
+
         prompt_data = self.prompts.get(self.current_prompt, {})
         attributes = prompt_data.get("default_attributes", {})
-
         prompt_text = self.prompt_text.toPlainText()
         system_prompt = self.interaction_system_prompt
-        if self.use_custom_system_prompt.isChecked():
-            system_prompt = CUSTOM_SYSTEM_PROMPT + system_prompt
+
+        # 🧠 Extract Venice Parameters and custom prompt name
+        custom_system_prompt_name = attributes.pop("custom_system_prompt_name", None)
+        venice_raw = attributes.get("venice_parameters", {})
+
+        # ✅ Only pass allowed keys into VeniceParameters
+        attributes["venice_parameters"] = VeniceParameters(**venice_raw)
+
+        # 🧠 Apply custom system prompt if needed
+        if custom_system_prompt_name and venice_raw.get("include_venice_system_prompt"):
+            selected = self.prompts.get(custom_system_prompt_name)
+            if selected and selected.get("type") == "system":
+                system_prompt = selected.get("prompt_text", system_prompt)
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Invalid System Prompt",
+                    f"Selected prompt '{custom_system_prompt_name}' is not a valid system prompt."
+                )
+                return
+
+        logger.debug(f"System Prompt:\n{system_prompt}")
 
         dialog = PromptRunDialog(
             api_key=self.api_key,
             model=self.model,
             prompt_text=prompt_text,
+            response_type=response_type,
             system_prompt=system_prompt,
             attributes=attributes,
             parent=self

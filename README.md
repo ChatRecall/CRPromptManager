@@ -1,3 +1,3 @@
 # CRPromptManager
 
-This is the CRPromptManager project.
+This is the (ChatRecall) CRPromptManager project.

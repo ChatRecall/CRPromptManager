@@ -3,11 +3,13 @@ from PySide6.QtWidgets import (
     QMessageBox, QComboBox, QTabWidget, QProgressDialog
 )
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QTextCursor
+
 import json
-import logging
 import re
 from pathlib import Path
 
+import logging
 logger = logging.getLogger(__name__)
 
 from WrapAIVenice import VeniceTextPrompt, VeniceChatPrompt, PromptTemplate, FILE_HANDLERS
@@ -17,7 +19,7 @@ from dialog_placeholder import PlaceholderDialog
 
 
 class PromptRunDialog(QDialog):
-    def __init__(self, api_key, model, prompt_text, system_prompt="You are a helpful assistant.",
+    def __init__(self, api_key, model, prompt_text, response_type="Question", system_prompt="You are a helpful assistant.",
                  attributes=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Run Prompt")
@@ -28,41 +30,73 @@ class PromptRunDialog(QDialog):
 
         self.api_key = api_key
         self.model = model
-        # self.prompt_text = prompt_text
+        self.prompt_text = prompt_text
+        self.response_type = response_type
         self.system_prompt = system_prompt
         self.attributes = attributes or {}
         self.response = None
         self.runner = None
 
+        # Display widgets
+        self.prompt_display = QTextEdit()
+        self.response_display = QTextEdit()
+        self.run_button = QPushButton("Run Prompt")
+        self.details_button = QPushButton("Full Response")
+        self.details_button.setEnabled(False)
+        self.close_button = QPushButton("Close")
+
         self.layout = QVBoxLayout(self)
 
         # Form selector (Question / Chat)
         form_layout = QHBoxLayout()
-        form_layout.addWidget(QLabel("Form:"))
-        self.form_combo = QComboBox()
-        self.form_combo.addItems(["Question", "Chat"])
-        form_layout.addWidget(self.form_combo)
+        # form_layout.addWidget(QLabel("Form:"))
+        # self.form_combo = QComboBox()
+        # self.form_combo.addItems(["Question", "Chat"])
+        # form_layout.addWidget(self.form_combo)
         self.layout.addLayout(form_layout)
 
+        if response_type== 'Question':
+            self.init_ui_question()
+        elif response_type == 'Chat':
+            self.init_ui_chat()
+        else:
+            logger.error(f"Unknown prompt type {response_type}")
+
+    def init_ui_question(self):
         # Prompt text display
-        self.prompt_display = QTextEdit()
-        self.prompt_display.setPlainText(prompt_text)
-        # self.prompt_display.setReadOnly(True)
+        self.prompt_display.setPlainText(self.prompt_text)
         self.layout.addWidget(QLabel("Prompt:"))
         self.layout.addWidget(self.prompt_display)
 
         # Response area
-        self.response_display = QTextEdit()
         self.response_display.setReadOnly(True)
         self.layout.addWidget(QLabel("Response:"))
         self.layout.addWidget(self.response_display)
 
         # Buttons
         button_layout = QHBoxLayout()
-        self.run_button = QPushButton("Run Prompt")
-        self.details_button = QPushButton("Full Response")
-        self.details_button.setEnabled(False)
-        self.close_button = QPushButton("Close")
+        button_layout.addWidget(self.run_button)
+        button_layout.addWidget(self.details_button)
+        button_layout.addWidget(self.close_button)
+        self.layout.addLayout(button_layout)
+
+        self.run_button.clicked.connect(self.run_prompt)
+        self.details_button.clicked.connect(self.show_detailed_response)
+        self.close_button.clicked.connect(self.accept)
+
+    def init_ui_chat(self):
+        # Response area
+        self.response_display.setReadOnly(True)
+        self.layout.addWidget(QLabel("Response:"))
+        self.layout.addWidget(self.response_display)
+
+        # Prompt text display
+        self.prompt_display.setPlainText(self.prompt_text)
+        self.layout.addWidget(QLabel("Prompt:"))
+        self.layout.addWidget(self.prompt_display)
+
+        # Buttons
+        button_layout = QHBoxLayout()
         button_layout.addWidget(self.run_button)
         button_layout.addWidget(self.details_button)
         button_layout.addWidget(self.close_button)
@@ -73,7 +107,8 @@ class PromptRunDialog(QDialog):
         self.close_button.clicked.connect(self.accept)
 
     def get_runner(self):
-        mode = self.form_combo.currentText()
+        # mode = self.form_combo.currentText()
+        mode = self.response_type
 
         if mode == self.runner_mode and self.runner:
             return self.runner  # ✅ Reuse same runner (preserve chat memory)
@@ -90,6 +125,7 @@ class PromptRunDialog(QDialog):
 
     def run_prompt(self):
         self.progress = QProgressDialog("Running prompt...", "", 0, 0, self)
+        self.progress.setWindowTitle("Running AI Prompt")
         self.progress.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress.setCancelButtonText("")
         self.progress.setMinimumDuration(0)
@@ -114,10 +150,28 @@ class PromptRunDialog(QDialog):
                 QMessageBox.warning(self, "No Response", "No response returned from the API.")
                 return
 
+            response = self.response.get("response", "No response available.")
 
-            summary = self.response.get("response", "No summary available.")
-            self.response_display.setPlainText(summary)
+            if self.response_type == 'Question':
+                self.response_display.setPlainText(response)
+            elif self.response_type == 'Chat':
+                existing_html = self.response_display.toHtml()
+
+                # Format as left-aligned prompt and right-aligned response
+                formatted_html = (
+                    f'{existing_html}'
+                    f'<div align="left" style="background-color:#f0f0f0; padding:8px; margin-top:1em; border-radius:6px; white-space:pre-wrap;">'
+                    f'{formatted_prompt}</div>'
+                    f'<div align="right" style="background-color:#e8f4ff; padding:8px; margin-top:0.5em; border-radius:6px; white-space:pre-wrap;">'
+                    f'{response}</div>'
+                )
+                self.response_display.setHtml(formatted_html)
+                self.response_display.moveCursor(QTextCursor.End)
+
             self.details_button.setEnabled(True)
+
+            # Extract citations
+            self.citations = self.response.get("web_search_citations", [])
 
         except Exception as e:
             logger.exception("Prompt failed")
@@ -155,6 +209,25 @@ class PromptRunDialog(QDialog):
 
         add_tab("Parameters", json.dumps(self.response.get("parameters", {}), indent=4))
         add_tab("Full JSON", json.dumps(self.response, indent=4))
+
+        # Add Citations tab
+        try:
+            if "citations" in self.response and self.response["citations"]:
+                citations_lines = []
+                for cite in self.response.get("citations", []):
+                    citations_lines.append(f"📰 {cite.get('title', 'No Title')}")
+                    citations_lines.append(f"📅 Date: {cite.get('date', 'No Date')}")
+                    citations_lines.append(f"🔗 URL: {cite.get('url', 'No URL')}")
+                    citations_lines.append(f"📝 Summary: {cite.get('content', 'No Summary')}\n")
+                citations_text = "\n".join(citations_lines)
+                add_tab("Citations", citations_text)
+        except KeyError:
+            citations_text = "\n\n".join(
+                    f"{c['title']} ({c['date']})\n{c['url']}\n{c['content']}"
+                    for c in self.response["citations"]
+                )
+            add_tab("Citations", citations_text)
+
 
         if isinstance(self.runner, VeniceChatPrompt):
             history = self.runner.memory.message_history
