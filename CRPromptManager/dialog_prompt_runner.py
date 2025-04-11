@@ -1,3 +1,5 @@
+# dialog_prompt_runner.py
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QPushButton,
     QMessageBox, QComboBox, QTabWidget, QProgressDialog
@@ -12,9 +14,7 @@ from pathlib import Path
 import logging
 logger = logging.getLogger(__name__)
 
-from WrapAIVenice import VeniceTextPrompt, VeniceChatPrompt, PromptTemplate, FILE_HANDLERS
-from WrapAIVenice.data.constants import CUSTOM_SYSTEM_PROMPT
-from WrapCapPDF import CapPDFHandler
+from WrapAIVenice import VeniceTextPrompt, VeniceChatPrompt, PromptTemplate, FILE_HANDLERS, PromptAttributes
 from dialog_placeholder import PlaceholderDialog
 
 
@@ -120,6 +120,8 @@ class PromptRunDialog(QDialog):
             self.runner = VeniceTextPrompt(self.api_key, self.model)
 
         self.runner.set_attributes(**self.attributes)
+        # self.runner.set_attributes(self.attributes)
+
         self.runner_mode = mode
         return self.runner
 
@@ -247,9 +249,8 @@ class PromptRunDialog(QDialog):
     def build_prompt_text(self, raw_prompt_text: str) -> str:
         """Replaces both variable and file placeholders properly before sending the prompt."""
         temp_prompt = PromptTemplate(
-            program="example",
             type="user",
-            name="temp",
+            subtype="",
             prompt_text=raw_prompt_text
         )
 

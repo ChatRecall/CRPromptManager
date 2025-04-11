@@ -30,11 +30,16 @@ class SettingsDialog(QDialog):
         self.ini_handler = INIHandler(self.run_time.ini_file_name)
         self.settings_io = None
         self.secrets = SecretsManager(".env")
+        self.header_data_ref = None
 
         self.venice_ai_api = QLineEdit()
         self.default_model_combobox = QComboBox()
         self.default_prompt_file = WSLineButton(button_icon=":/icons/mat_des/file_open_24dp.png", button_action=self.select_default_prompt_file, use_custom_menu=True)
         self.project_dir = QDir.homePath()
+
+        self.app_name = QLineEdit()  # "CRExecutiveOrders"
+        self.data_version = QLineEdit()  # '0.1.0'
+        self.file_type = QLineEdit()  # "executive_orders"
 
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save |
@@ -62,8 +67,17 @@ class SettingsDialog(QDialog):
             WSGridRecord(widget=self.default_prompt_file, position=WSGridPosition(row=5, column=1)),
 
             WSGridRecord(widget=QLabel(""), position=WSGridPosition(row=6, column=0), col_span=2),
+            WSGridRecord(widget=QLabel("Prompt File Header Information"), position=WSGridPosition(row=7, column=0), col_span=2),
+            WSGridRecord(widget=QLabel("Application Name"), position=WSGridPosition(row=8, column=0)),
+            WSGridRecord(widget=self.app_name, position=WSGridPosition(row=8, column=1)),
+            WSGridRecord(widget=QLabel("Data Version"), position=WSGridPosition(row=9, column=0)),
+            WSGridRecord(widget=self.data_version, position=WSGridPosition(row=9, column=1)),
+            WSGridRecord(widget=QLabel("File Type"), position=WSGridPosition(row=10, column=0)),
+            WSGridRecord(widget=self.file_type, position=WSGridPosition(row=10, column=1)),
 
-            WSGridRecord(widget=self.button_box, position=WSGridPosition(row=7, column=0), col_span=2),
+            WSGridRecord(widget=QLabel(""), position=WSGridPosition(row=11, column=0), col_span=2),
+
+            WSGridRecord(widget=self.button_box, position=WSGridPosition(row=12, column=0), col_span=2),
             ]
 
         grid_layout_handler.add_widget_records(main_grid_widgets)
@@ -119,7 +133,7 @@ class SettingsDialog(QDialog):
         if file_path:
             self.default_prompt_file.setText(file_path)
 
-    def set_fields(self):
+    def set_fields(self, header_data=None):
         try:
             # key = self.ini_handler.read_value('API-Keys', 'venice')
             key = self.secrets.get_secret("Venice_API_KEY")
@@ -142,22 +156,53 @@ class SettingsDialog(QDialog):
             'api_key': self.venice_ai_api,
             'default_model': self.default_model_combobox,
             'default_prompt_file': self.default_prompt_file,
+            'app_name': self.app_name,
+            'data_version': self.data_version,
+            'file_name': self.file_type,
         }
         dialog_values = {
             'api_key': key,
             'default_model': default_model,
             'default_prompt_file': default_prompt_file,
+            'app_name': "",
+            'data_version': "",
+            'file_name': "",
         }
         self.settings_io = WSGuiIO(widget_mapping, dialog_values)
         self.settings_io.set_gui()
 
+        # Optional header data population
+        if header_data is None:
+            self.app_name.setText("")
+            self.data_version.setText("")
+            self.file_type.setText("")
+
+            self.app_name.setEnabled(False)
+            self.data_version.setEnabled(False)
+            self.file_type.setEnabled(False)
+        else:
+            self.app_name.setText(header_data.get("app_name", ""))
+            self.data_version.setText(header_data.get("data_version", ""))
+            self.file_type.setText(header_data.get("file_type", ""))
+
+            self.app_name.setEnabled(True)
+            self.data_version.setEnabled(True)
+            self.file_type.setEnabled(True)
+
+            # Store a reference for updating it later in get_fields()
+            self.header_data_ref = header_data
+
     def get_fields(self):
         try:
             updated_settings = self.settings_io.get_gui()
+
+            if hasattr(self, "header_data_ref"):
+                self.header_data_ref["app_name"] = updated_settings["app_name"]
+                self.header_data_ref["data_version"] = updated_settings["data_version"]
+                self.header_data_ref["file_type"] = updated_settings["file_name"]
+
             # Retrieve the model name from the combo box's item data.
             updated_settings['default_model'] = self.default_model_combobox.currentData()
-
-
 
             # self.ini_handler.create_or_update_option('API-Keys', 'venice', updated_settings['api_key'])
             self.secrets.set_secret("Venice_API_KEY", updated_settings['api_key'])

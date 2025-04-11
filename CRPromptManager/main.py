@@ -38,7 +38,7 @@ from dialog_about import AboutDialog
 from dialog_settings import SettingsDialog
 from dialog_prompt_runner import PromptRunDialog
 from file_backup import FileBackupManager
-
+from cp_core import prompt_types, prompt_subtypes
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant."
 
@@ -87,6 +87,7 @@ class PromptEditor(QMainWindow):
 
         ## Prompt text widgets
         self.prompt_type = QComboBox()
+        self.prompt_subtype = QComboBox()
         self.prompt_text = QTextEdit()
         self.full_response_button = QPushButton("Full Response")
 
@@ -146,6 +147,11 @@ class PromptEditor(QMainWindow):
         self.api_key = self.secrets.get_secret("Venice_API_KEY")
         self.model = "llama-3.1-405b"
 
+        self.prompt_file_header = {
+            "app_name": "",
+            "data_version": "",
+            "file_type": ""
+        }
 
         # Initiate methods
         self.init_ui()
@@ -178,6 +184,13 @@ class PromptEditor(QMainWindow):
                          col_stretch=0),
             WSGridRecord(widget=self.prompt_type,
                          position=WSGridPosition(row=0, column=1),
+                         col_stretch=0),
+
+            WSGridRecord(widget=QLabel("Prompt Subtype:"),
+                         position=WSGridPosition(row=1, column=0),
+                         col_stretch=0),
+            WSGridRecord(widget=self.prompt_subtype,
+                         position=WSGridPosition(row=1, column=1),
                          col_stretch=0),
 
             WSGridRecord(widget=QLabel("Prompt"),
@@ -467,13 +480,15 @@ class PromptEditor(QMainWindow):
         self.presence_penalty_input.setRange(-2.0, 2.0)
         self.max_tokens_input.setMaximum(10000)
         self.enable_web_search_input.addItems(WEB_SEARCH_MODES)
-        self.prompt_type.addItems(["user", "system"])
+        self.prompt_type.addItems(prompt_types)
+        self.prompt_subtype.addItems(prompt_subtypes)
         self.response_format_type.addItems(["json_schema"])
 
     def connect_signals(self):
         self.prompt_list.itemClicked.connect(self.set_prompt)
         self.response_format_use.stateChanged.connect(self.toggle_response_tab)
         self.prompt_type.currentTextChanged.connect(self.on_prompt_type_changed)
+        self.prompt_subtype.currentTextChanged.connect(self.on_prompt_subtype_changed)
 
         self.custom_system_prompt_use.stateChanged.connect(self.select_system_prompt)
         self.include_venice_params.stateChanged.connect(self.toggle_venice_params)
@@ -498,7 +513,11 @@ class PromptEditor(QMainWindow):
                 if self.prompt_list.count() > 0:
                     first_item = self.prompt_list.item(0)
                     self.prompt_list.setCurrentItem(first_item)
-                    # Since you rely on set_prompt() to fill the widgets, call it directly:
+                    self.prompt_file_header = data.get("header", {
+                        "app_name": "",
+                        "data_version": "",
+                        "file_type": ""
+                    })
                     self.set_prompt(first_item)
 
     # Status bar methods
@@ -523,13 +542,16 @@ class PromptEditor(QMainWindow):
 
     def toggle_venice_params(self):
         self.venice_parameters_groupbox.setEnabled(self.include_venice_params.isChecked())
+        self.toggle_system_prompt()
 
     def toggle_system_prompt(self):
-        enabled = not self.custom_system_prompt_use.isChecked()
+        enabled = not self.custom_system_prompt_use.isChecked() or not self.include_venice_params.isChecked()
         self.system_prompt_label.setEnabled(enabled)
         self.system_prompt_use.setEnabled(enabled)
         self.system_prompt_input.setEnabled(enabled)
-        self.system_prompt_use.setChecked(False)
+
+        if not enabled:
+            self.system_prompt_use.setChecked(False)
 
     # Tab methods
     def toggle_response_tab(self, state):
@@ -545,6 +567,10 @@ class PromptEditor(QMainWindow):
         is_system = prompt_type == "system"
         self.tab_widget.setTabEnabled(1, not is_system)  # Attributes tab
         self.tab_widget.setTabEnabled(2, not is_system)  # Response Format tab
+        self.prompt_subtype.setEnabled(not is_system)
+
+    def on_prompt_subtype_changed(self, prompt_subtype: str):
+        pass
 
     # CRUD methods
     def new_prompt(self):
@@ -571,6 +597,7 @@ class PromptEditor(QMainWindow):
 
         self.prompt_text.setText(prompt_data.get("prompt_text", ""))
         self.prompt_type.setCurrentText(prompt_data.get("type", "user"))
+        self.prompt_subtype.setCurrentText(prompt_data.get("subtype", "query"))
         self.prompt_notes.setText(prompt_data.get("notes", ""))
         attributes = prompt_data.get("default_attributes", {})
 
@@ -648,7 +675,7 @@ class PromptEditor(QMainWindow):
                 default_attributes[key] = field.value() if isinstance(field,
                                                                       (QSpinBox, QDoubleSpinBox)) else field.text()
 
-        add_if_checked(self.system_prompt_input, self.system_prompt_use, "system_prompt")
+        # add_if_checked(self.system_prompt_input, self.system_prompt_use, "system_prompt")
         add_if_checked(self.temperature_input, self.temperature_use, "temperature")
         add_if_checked(self.top_p_input, self.top_p_use, "top_p")
         add_if_checked(self.frequency_penalty_input, self.frequency_penalty_use, "frequency_penalty")
@@ -681,6 +708,7 @@ class PromptEditor(QMainWindow):
         self.prompts[self.current_prompt] = {
             "prompt_text": self.prompt_text.toPlainText(),
             "type": self.prompt_type.currentText(),
+            "subtype": self.prompt_subtype.currentText(),
             "notes": self.prompt_notes.toPlainText(),
             "default_attributes": default_attributes
         }
@@ -719,9 +747,12 @@ class PromptEditor(QMainWindow):
             backup = FileBackupManager(self.prompt_library_file)
             backup.backup_current_file()
 
-            # Write all prompts to the JSON file
+            # ✅ Write header and prompts to JSON file
             with open(self.prompt_library_file, "w", encoding="utf-8") as file:
-                json.dump({"data": self.prompts}, file, indent=4)
+                json.dump({
+                    "header": self.prompt_file_header,
+                    "data": self.prompts
+                }, file, indent=4)
 
             self.update_status_bar(f"Prompts saved successfully to {self.prompt_library_file}")
         except Exception as e:
@@ -740,10 +771,21 @@ class PromptEditor(QMainWindow):
         self.update_current_prompt_data()
 
         prompt_data = self.prompts.get(self.current_prompt, {})
-        attributes = prompt_data.get("default_attributes", {})
+        # attributes = prompt_data.get("default_attributes", {})
+        attributes = dict(prompt_data.get("default_attributes", {}))  # shallow copy
+
         prompt_text = self.prompt_text.toPlainText()
 
-        system_prompt = attributes.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
+        # system_prompt = attributes.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
+
+        # Get system prompt separately
+        if self.system_prompt_use.isChecked():
+            system_prompt = self.system_prompt_input.text()
+        else:
+            system_prompt = DEFAULT_SYSTEM_PROMPT
+
+        # Strip system_prompt out of default_attributes if it got added (for safety)
+        attributes.pop("system_prompt", None)
 
         # 🧠 Extract Venice Parameters and custom prompt name
         custom_system_prompt_name = attributes.pop("custom_system_prompt_name", None)
@@ -784,10 +826,13 @@ class PromptEditor(QMainWindow):
 
     def show_settings(self):
         logger.debug("showing dialog")
-        self.dialog_settings.set_fields()
+        # self.dialog_settings.set_fields()
+        self.dialog_settings.set_fields(self.prompt_file_header if self.prompt_library_file else None)
+
         if self.dialog_settings.exec():
-            self.init_defaults()
+            # self.init_defaults()  # if left in, this doesn't save the values from settings so it overrides them as blank strings
             logger.info(f"Model: {self.model}")
+            # self.save_prompts()  # if I want the prompt file written with the ini file and secrets.
 
         self.update_status_bar(f"Library file: {self.prompt_library_file}")
 
