@@ -675,7 +675,7 @@ class PromptEditor(QMainWindow):
                 default_attributes[key] = field.value() if isinstance(field,
                                                                       (QSpinBox, QDoubleSpinBox)) else field.text()
 
-        # add_if_checked(self.system_prompt_input, self.system_prompt_use, "system_prompt")
+        add_if_checked(self.system_prompt_input, self.system_prompt_use, "system_prompt")
         add_if_checked(self.temperature_input, self.temperature_use, "temperature")
         add_if_checked(self.top_p_input, self.top_p_use, "top_p")
         add_if_checked(self.frequency_penalty_input, self.frequency_penalty_use, "frequency_penalty")
