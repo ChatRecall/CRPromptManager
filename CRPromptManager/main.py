@@ -600,6 +600,8 @@ class PromptEditor(QMainWindow):
         self.prompt_subtype.setCurrentText(prompt_data.get("subtype", "query"))
         self.prompt_notes.setText(prompt_data.get("notes", ""))
         attributes = prompt_data.get("default_attributes", {})
+        self.system_prompt_use.setChecked(prompt_data.get("prompt_system_use", False))
+        self.system_prompt_input.setText((prompt_data.get("prompt_system_text", DEFAULT_SYSTEM_PROMPT)))
 
         def set_value_and_checkbox(field, checkbox, value, default):
             checkbox.setChecked(value is not None)
@@ -608,8 +610,8 @@ class PromptEditor(QMainWindow):
             elif hasattr(field, "setText"):
                 field.setText(str(value if value is not None else default))
 
-        set_value_and_checkbox(self.system_prompt_input, self.system_prompt_use, attributes.get("system_prompt"),
-                               DEFAULT_SYSTEM_PROMPT)
+        # set_value_and_checkbox(self.system_prompt_input, self.system_prompt_use, attributes.get("system_prompt"),
+        #                        DEFAULT_SYSTEM_PROMPT)
 
         set_value_and_checkbox(self.temperature_input, self.temperature_use, attributes.get("temperature"), 0.0)
         set_value_and_checkbox(self.top_p_input, self.top_p_use, attributes.get("top_p"), 1.0)
@@ -675,7 +677,7 @@ class PromptEditor(QMainWindow):
                 default_attributes[key] = field.value() if isinstance(field,
                                                                       (QSpinBox, QDoubleSpinBox)) else field.text()
 
-        add_if_checked(self.system_prompt_input, self.system_prompt_use, "system_prompt")
+        # add_if_checked(self.system_prompt_input, self.system_prompt_use, "system_prompt")
         add_if_checked(self.temperature_input, self.temperature_use, "temperature")
         add_if_checked(self.top_p_input, self.top_p_use, "top_p")
         add_if_checked(self.frequency_penalty_input, self.frequency_penalty_use, "frequency_penalty")
@@ -710,7 +712,9 @@ class PromptEditor(QMainWindow):
             "type": self.prompt_type.currentText(),
             "subtype": self.prompt_subtype.currentText(),
             "notes": self.prompt_notes.toPlainText(),
-            "default_attributes": default_attributes
+            "default_attributes": default_attributes,
+            "prompt_system_use":self.system_prompt_use.isChecked(),
+            "prompt_system_text": self.system_prompt_input.text(),
         }
 
     def delete_prompt(self, item):
@@ -775,8 +779,6 @@ class PromptEditor(QMainWindow):
         attributes = dict(prompt_data.get("default_attributes", {}))  # shallow copy
 
         prompt_text = self.prompt_text.toPlainText()
-
-        # system_prompt = attributes.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
 
         # Get system prompt separately
         if self.system_prompt_use.isChecked():
