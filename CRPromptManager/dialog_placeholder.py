@@ -9,7 +9,7 @@ import logging
 # Logger Configuration
 logger = logging.getLogger(__name__)
 
-from WrapSideSix.widgets.line_edit_widget import WSLineButton
+from WrapSideSix.widgets.line_edit_widget import WSLineButtonFile
 
 import WrapSideSix.icons.icons_mat_des
 WrapSideSix.icons.icons_mat_des.qInitResources()
@@ -51,7 +51,7 @@ class PlaceholderDialog(QDialog):
     def _add_normal_placeholders(self, parent_layout, placeholders):
         """Creates labeled QLineEdit fields for each normal (text) placeholder."""
         for placeholder in placeholders:
-            label = QLabel(f"Value for << {placeholder} >>", self)
+            label = QLabel(f"Value for {placeholder} ", self)
             line_edit = QLineEdit(self)
 
             parent_layout.addWidget(label)
@@ -63,30 +63,14 @@ class PlaceholderDialog(QDialog):
     def _add_file_placeholders(self, parent_layout, file_placeholders):
         """Creates labeled WSLineButton fields for each file placeholder."""
         for file_placeholder in file_placeholders:
-            label = QLabel(f"File for %% {file_placeholder} %%", self)
+            label = QLabel(f"File for {file_placeholder} ", self)
             h_layout = QHBoxLayout()
 
             # 1) Create your WSLineButton with no action
-            line_edit = WSLineButton(
+            line_edit = WSLineButtonFile(
                 button_icon=":/icons/mat_des/folder_24dp.png",
-                button_action=None,  # We'll set it later
                 parent=self
             )
-
-            # 2) Define a helper function that captures the correct line_edit
-            def create_browse_callback(edit: WSLineButton):
-                def on_browse_clicked(*args):
-                    file_path, _ = QFileDialog.getOpenFileName(self, "Select File")
-                    if file_path:
-                        edit.setText(file_path)
-
-                return on_browse_clicked
-
-            # 3) Create the callback, passing in the line_edit we just created
-            callback = create_browse_callback(line_edit)
-
-            # 4) Set that callback as the button action
-            line_edit.set_button_action(callback)
 
             # Build layout
             h_layout.addWidget(line_edit)

@@ -15,7 +15,8 @@ from WrapSideSix.io.ws_io import WSGuiIO
 from WrapSideSix.widgets.line_edit_widget import WSLineButton
 from WrapConfig import INIHandler, RuntimeConfig, SecretsManager
 
-from WrapAIVenice.info.models import VeniceModels
+# from WrapAIVenice.info.models import VeniceModels
+from WrapAI.info.models import VeniceModels
 
 import WrapSideSix.icons.icons_mat_des
 WrapSideSix.icons.icons_mat_des.qInitResources()
@@ -119,7 +120,8 @@ class SettingsDialog(QDialog):
 
         venice_models = VeniceModels(api_key)
         venice_models.fetch_models()
-        models_dict = venice_models.get_model_tokens_dict()
+        # models_dict = venice_models.get_model_tokens_dict()
+        models_dict = venice_models.get_model_detail_dict()
         models_list = sorted(models_dict.keys())
         return models_list, models_dict
 

@@ -14,7 +14,8 @@ from pathlib import Path
 import logging
 logger = logging.getLogger(__name__)
 
-from WrapAIVenice import VeniceTextPrompt, VeniceChatPrompt, PromptTemplate, FILE_HANDLERS, PromptAttributes
+# from WrapAIVenice import VeniceTextPrompt, VeniceChatPrompt, PromptTemplate, FILE_HANDLERS, PromptAttributes
+from WrapAI import VeniceTextPrompt, VeniceChatPrompt, PromptTemplate, FILE_HANDLERS, PromptAttributes, parse_response_with_schema
 from dialog_placeholder import PlaceholderDialog
 
 
@@ -30,7 +31,9 @@ class PromptRunDialog(QDialog):
 
         self.api_key = api_key
         self.model = model
-        self.prompt_text = prompt_text
+        # self.prompt_text = prompt_text
+        self.prompt_text = re.sub(r'@@\s*[\w.-]+\s*@@', '', prompt_text)
+
         self.response_type = response_type
         self.system_prompt = system_prompt
         self.attributes = attributes or {}
@@ -152,14 +155,31 @@ class PromptRunDialog(QDialog):
                 QMessageBox.warning(self, "No Response", "No response returned from the API.")
                 return
 
-            response = self.response.get("response", "No response available.")
+            # response = self.response.get("response", "No response available.")
+            response = self.response.response if self.response.response is not None else "No response available."
 
-            if self.response_type == 'Question':
+            # Try to parse structured response if JSON schema is defined
+            schema_json = self.attributes.get("response_format")
+            use_json = schema_json is not None and isinstance(schema_json, dict)
+
+            if use_json:
+                try:
+                    parsed_data = parse_response_with_schema(
+                        response_json=json.loads(response),
+                        schema_json=schema_json,
+                        include_missing_optionals=False
+                    )
+                    formatted = "\n\n".join(f"=== {key} ===\n{value}" for key, value in parsed_data.items())
+                    self.response_display.setPlainText(formatted)
+
+                except Exception as e:
+                    logger.warning(f"Failed to parse JSON response with schema: {e}")
+                    self.response_display.setPlainText(response)
+            else:
                 self.response_display.setPlainText(response)
-            elif self.response_type == 'Chat':
-                existing_html = self.response_display.toHtml()
 
-                # Format as left-aligned prompt and right-aligned response
+            if self.response_type == 'Chat':
+                existing_html = self.response_display.toHtml()
                 formatted_html = (
                     f'{existing_html}'
                     f'<div align="left" style="background-color:#f0f0f0; padding:8px; margin-top:1em; border-radius:6px; white-space:pre-wrap;">'
@@ -171,9 +191,7 @@ class PromptRunDialog(QDialog):
                 self.response_display.moveCursor(QTextCursor.End)
 
             self.details_button.setEnabled(True)
-
-            # Extract citations
-            self.citations = self.response.get("web_search_citations", [])
+            self.citations = self.response.citations if self.response.citations is not None else []
 
         except Exception as e:
             logger.exception("Prompt failed")
@@ -197,39 +215,37 @@ class PromptRunDialog(QDialog):
             edit.setReadOnly(True)
             tab_widget.addTab(edit, label)
 
-        add_tab("Response", self.response.get("response", ""))
-        add_tab("Think", self.response.get("think", ""))
+        # add_tab("Response", self.response.get("response", ""))
+        # add_tab("Think", self.response.get("think", ""))
 
-        usage = self.response.get("usage", {})
+        add_tab("Response", self.response.response or "")
+        add_tab("Think", self.response.think or "")
+
+        usage = self.response.usage or {}
         usage_text = (
-            f"Model: {self.response.get('model', 'Unknown')}\n"
+            f"Model: {self.response.model or 'Unknown'}\n"
             f"Total Tokens: {usage.get('total_tokens', 'N/A')}\n"
             f"Prompt Tokens: {usage.get('prompt_tokens', 'N/A')}\n"
             f"Completion Tokens: {usage.get('completion_tokens', 'N/A')}\n"
         )
         add_tab("Model & Usage", usage_text)
 
-        add_tab("Parameters", json.dumps(self.response.get("parameters", {}), indent=4))
-        add_tab("Full JSON", json.dumps(self.response, indent=4))
+        add_tab("Parameters", json.dumps(self.response.parameters or {}, indent=4))
+
+        # For full JSON, convert the entire PromptResponse object to a dict first
+        add_tab("Full JSON", json.dumps(self.response.to_dict() if hasattr(self.response, "to_dict") else {}, indent=4))
 
         # Add Citations tab
-        try:
-            if "citations" in self.response and self.response["citations"]:
-                citations_lines = []
-                for cite in self.response.get("citations", []):
-                    citations_lines.append(f"📰 {cite.get('title', 'No Title')}")
-                    citations_lines.append(f"📅 Date: {cite.get('date', 'No Date')}")
-                    citations_lines.append(f"🔗 URL: {cite.get('url', 'No URL')}")
-                    citations_lines.append(f"📝 Summary: {cite.get('content', 'No Summary')}\n")
-                citations_text = "\n".join(citations_lines)
-                add_tab("Citations", citations_text)
-        except KeyError:
-            citations_text = "\n\n".join(
-                    f"{c['title']} ({c['date']})\n{c['url']}\n{c['content']}"
-                    for c in self.response["citations"]
-                )
+        citations = getattr(self.response, "citations", [])
+        if citations:
+            citations_lines = []
+            for cite in citations:
+                citations_lines.append(f"📰 {cite.get('title', 'No Title')}")
+                citations_lines.append(f"📅 Date: {cite.get('date', 'No Date')}")
+                citations_lines.append(f"🔗 URL: {cite.get('url', 'No URL')}")
+                citations_lines.append(f"📝 Summary: {cite.get('content', 'No Summary')}\n")
+            citations_text = "\n".join(citations_lines)
             add_tab("Citations", citations_text)
-
 
         if isinstance(self.runner, VeniceChatPrompt):
             history = self.runner.memory.message_history

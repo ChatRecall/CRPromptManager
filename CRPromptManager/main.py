@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout,
-    QTextEdit, QPushButton, QLabel, QLineEdit, QSpinBox, QDoubleSpinBox,
+    QTextEdit, QPushButton, QLabel, QLineEdit, QSpinBox, QDoubleSpinBox, QPlainTextEdit,
     QFileDialog, QMessageBox, QCheckBox, QComboBox, QInputDialog, QTabWidget, QStatusBar,
 )
 from PySide6.QtCore import Qt
@@ -31,21 +31,23 @@ from WrapSideSix.toolbars.toolbar_icon import WSToolbarIcon, DropdownItem
 # from WrapSideSix.widgets.line_edit_widget import WSLineButton
 from WrapSideSix.widgets.list_widget import WSListSelectionWidget
 
-from WrapAIVenice import VeniceParameters, WEB_SEARCH_MODES
+# from WrapAIVenice import VeniceParameters, WEB_SEARCH_MODES
+from WrapAI import VeniceParameters, WEB_SEARCH_MODES, PromptTemplate
 from WrapConfig import RuntimeConfig, INIHandler, SecretsManager
 
 from dialog_about import AboutDialog
-from dialog_settings import SettingsDialog
+from dialog_settings2 import SettingsDialog
+from dialog_output_format import OutputFieldDialog
 from dialog_prompt_runner import PromptRunDialog
 from file_backup import FileBackupManager
-from cp_core import prompt_types, prompt_subtypes
+from cp_core import (prompt_types, prompt_subtypes, DEFAULT_SYSTEM_PROMPT, DEFAULT_AI_MODEL,
+                     DEFAULT_TEMPERATURE, DEFAULT_TOP_P,DEFAULT_FREQUENCY_PENALTY,DEFAULT_PRESENCE_PENALTY, DEFAULT_MAX_COMPLETION_TOKENS, DEFAULT_VENICE_PARAMS)
 
-DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant."
 
 class PromptEditor(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Prompt Editor")
+        self.setWindowTitle("ChatRecall Prompt Editor")
         self.setGeometry(100, 100, 800, 600)
 
         # Extract prompt data
@@ -75,6 +77,8 @@ class PromptEditor(QMainWindow):
 
         self.library_grid = WSGridLayoutHandler()
         self.prompt_grid = WSGridLayoutHandler()
+        self.prompt_placeholder_grid = WSGridLayoutHandler()
+        self.prompt_placeholder_groupbox = None
         self.attribute_grid =  WSGridLayoutHandler()
         self.response_format_grid = WSGridLayoutHandler()
         self.notes_grid = WSGridLayoutHandler()
@@ -94,7 +98,7 @@ class PromptEditor(QMainWindow):
         ## Attribute widgets
         self.system_prompt_label = QLabel("System Prompt")
         self.system_prompt_use = QCheckBox()
-        self.system_prompt_input = QLineEdit("You are a helpful AI Assistant")
+        self.system_prompt_input = QLineEdit(DEFAULT_SYSTEM_PROMPT)
         self.temperature_use = QCheckBox()
         self.temperature_input = QDoubleSpinBox()
         self.top_p_use = QCheckBox()
@@ -116,6 +120,13 @@ class PromptEditor(QMainWindow):
         self.response_format_use = QCheckBox()
         self.response_format_type = QComboBox()
         self.response_format_input = QTextEdit()
+
+        # Buttons
+        self.placeholder_text_button = QPushButton("Text")
+        self.placeholder_file_button = QPushButton("File")
+        self.placeholder_output_button = QPushButton("Output")
+
+        self.build_response_button = QPushButton("Build Response")
 
         # Potential New widgets
         ## repetition_penalty
@@ -145,7 +156,7 @@ class PromptEditor(QMainWindow):
         self.secrets = SecretsManager(".env")
 
         self.api_key = self.secrets.get_secret("Venice_API_KEY")
-        self.model = "llama-3.1-405b"
+        self.model = DEFAULT_AI_MODEL
 
         self.prompt_file_header = {
             "app_name": "",
@@ -178,6 +189,23 @@ class PromptEditor(QMainWindow):
         ]
         self.library_grid.add_widget_records(prompt_library_widgets)
 
+        prompt_placeholder_widgets = [
+            # WSGridRecord(widget=QLabel("Insert Placeholder"),
+            #              position=WSGridPosition(row=0, column=0),
+            #              col_stretch=0),
+            WSGridRecord(widget=self.placeholder_text_button,
+                         position=WSGridPosition(row=0, column=0),
+                         col_stretch=0),
+            WSGridRecord(widget=self.placeholder_file_button,
+                         position=WSGridPosition(row=0, column=1),
+                         col_stretch=0),
+            WSGridRecord(widget=self.placeholder_output_button,
+                         position=WSGridPosition(row=0, column=2),
+                         col_stretch=0),
+        ]
+        self.prompt_placeholder_grid.add_widget_records(prompt_placeholder_widgets)
+        self.prompt_placeholder_groupbox = self.prompt_placeholder_grid.as_groupbox_widget("Insert Placeholder")
+
         prompt_widgets = [
             WSGridRecord(widget=QLabel("Prompt Type:"),
                          position=WSGridPosition(row=0, column=0),
@@ -192,6 +220,13 @@ class PromptEditor(QMainWindow):
             WSGridRecord(widget=self.prompt_subtype,
                          position=WSGridPosition(row=1, column=1),
                          col_stretch=0),
+
+            WSGridRecord(widget=self.prompt_placeholder_groupbox,
+                         position=WSGridPosition(row=2, column=0),
+                         col_span=2),
+            WSGridRecord(widget=QLabel(""),
+                         position=WSGridPosition(row=3, column=0),
+                         col_span=2),
 
             WSGridRecord(widget=QLabel("Prompt"),
                          position=WSGridPosition(row=4, column=0),
@@ -241,20 +276,7 @@ class PromptEditor(QMainWindow):
             WSGridRecord(widget=self.character_slug_input,
                          position=WSGridPosition(row=3, column=2),
                          col_stretch=0,
-                         row_stretch=0),
-
-            WSGridRecord(widget=QLabel("Response Format"),
-                         position=WSGridPosition(row=4, column=0),
-                         col_stretch=0,
-                         row_stretch=0),
-            WSGridRecord(widget=self.response_format_use,
-                         position=WSGridPosition(row=4, column=1),
-                         col_stretch=0,
-                         row_stretch=0),
-            WSGridRecord(widget=self.response_format_type,
-                         position=WSGridPosition(row=4, column=2),
-                         col_stretch=0,
-                         row_stretch=0),
+                         row_stretch=0)
         ]
         self.venice_parameters_grid.add_widget_records(venice_custom_attributes_widgets)
         self.venice_parameters_groupbox = self.venice_parameters_grid.as_groupbox_widget("Venice Parameters")
@@ -321,18 +343,31 @@ class PromptEditor(QMainWindow):
                          position=WSGridPosition(row=5, column=2),
                          col_stretch=0),
 
-            WSGridRecord(widget=QLabel("Include Venice Parameters"),
+            WSGridRecord(widget=QLabel("Response Format"),
                          position=WSGridPosition(row=6, column=0),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.response_format_use,
+                         position=WSGridPosition(row=6, column=1),
+                         col_stretch=0,
+                         row_stretch=0),
+            WSGridRecord(widget=self.response_format_type,
+                         position=WSGridPosition(row=6, column=2),
+                         col_stretch=0,
+                         row_stretch=0),
+
+            WSGridRecord(widget=QLabel("Include Venice Parameters"),
+                         position=WSGridPosition(row=7, column=0),
                          col_stretch=0),
             WSGridRecord(widget=self.include_venice_params,
-                         position=WSGridPosition(row=6, column=1),
+                         position=WSGridPosition(row=7, column=1),
                          col_stretch=0),
             WSGridRecord(widget=QLabel("\n\n"),
-                         position=WSGridPosition(row=6, column=2),
+                         position=WSGridPosition(row=7, column=2),
                          col_stretch=0),
 
             WSGridRecord(widget=self.venice_parameters_groupbox,
-                         position=WSGridPosition(row=7, column=0),
+                         position=WSGridPosition(row=8, column=0),
                          col_stretch=0,
                          row_stretch=0,
                          col_span=3,
@@ -345,8 +380,12 @@ class PromptEditor(QMainWindow):
             WSGridRecord(widget=QLabel("Response Format:"),
                          position=WSGridPosition(row=0, column=0),
                          col_stretch=0),
-            WSGridRecord(widget=self.response_format_input,
+            WSGridRecord(widget=self.build_response_button,
                          position=WSGridPosition(row=1, column=0),
+                         col_stretch=0,
+                         alignment=Qt.AlignmentFlag.AlignLeft),
+            WSGridRecord(widget=self.response_format_input,
+                         position=WSGridPosition(row=2, column=0),
                          col_stretch=0),
 
         ]
@@ -493,9 +532,12 @@ class PromptEditor(QMainWindow):
         self.custom_system_prompt_use.stateChanged.connect(self.select_system_prompt)
         self.include_venice_params.stateChanged.connect(self.toggle_venice_params)
 
-    def init_defaults(self):
-        # self.api_key = self.ini_handler.read_value('API-Keys', 'venice')
+        self.build_response_button.clicked.connect(self.show_output_dialog)
+        self.placeholder_text_button.clicked.connect(lambda: self.insert_prompt_placeholder("Insert Text Placeholder", "Text placeholder:", "<< {} >>"))
+        self.placeholder_file_button.clicked.connect(lambda: self.insert_prompt_placeholder("Insert File Placeholder", "File placeholder:", "%% {} %%"))
+        self.placeholder_output_button.clicked.connect(lambda: self.insert_prompt_placeholder("Insert Output Placeholder", "Output placeholder:", "@@ {} @@"))
 
+    def init_defaults(self):
         self.ini_handler.reload()
         self.model = self.ini_handler.read_value('CRPromptManager', 'default_model')
         self.prompt_library_file = self.ini_handler.read_value('CRPromptManager', 'default_prompt_file')
@@ -553,6 +595,13 @@ class PromptEditor(QMainWindow):
         if not enabled:
             self.system_prompt_use.setChecked(False)
 
+    def insert_prompt_placeholder(self, dialog_title: str, dialog_label: str, wrap_format: str):
+        text, ok = QInputDialog.getText(self, dialog_title, dialog_label)
+        if ok and text.strip():
+            cursor = self.prompt_text.textCursor()
+            placeholder = wrap_format.format(text.strip())
+            cursor.insertText(placeholder)
+
     # Tab methods
     def toggle_response_tab(self, state):
         self.tab_widget.setTabVisible(2, state ==2) # 2 means checked, 0 means unchecked
@@ -568,6 +617,7 @@ class PromptEditor(QMainWindow):
         self.tab_widget.setTabEnabled(1, not is_system)  # Attributes tab
         self.tab_widget.setTabEnabled(2, not is_system)  # Response Format tab
         self.prompt_subtype.setEnabled(not is_system)
+        self.prompt_placeholder_groupbox.setEnabled(not is_system)
 
     def on_prompt_subtype_changed(self, prompt_subtype: str):
         pass
@@ -608,20 +658,29 @@ class PromptEditor(QMainWindow):
             if hasattr(field, "setValue"):
                 field.setValue(value if value is not None else default)
             elif hasattr(field, "setText"):
-                field.setText(str(value if value is not None else default))
+                # Handle JSON objects specially
+                if isinstance(value, dict) or isinstance(value, list):
+                    field.setText(json.dumps(value, indent=4))
+                else:
+                    field.setText(str(value if value is not None else default))
 
-        # set_value_and_checkbox(self.system_prompt_input, self.system_prompt_use, attributes.get("system_prompt"),
-        #                        DEFAULT_SYSTEM_PROMPT)
-
-        set_value_and_checkbox(self.temperature_input, self.temperature_use, attributes.get("temperature"), 0.0)
-        set_value_and_checkbox(self.top_p_input, self.top_p_use, attributes.get("top_p"), 1.0)
+        set_value_and_checkbox(self.temperature_input, self.temperature_use, attributes.get("temperature"), DEFAULT_TEMPERATURE)
+        set_value_and_checkbox(self.top_p_input, self.top_p_use, attributes.get("top_p"), DEFAULT_TOP_P)
         set_value_and_checkbox(self.frequency_penalty_input, self.frequency_penalty_use,
-                               attributes.get("frequency_penalty"), 0.0)
+                               attributes.get("frequency_penalty"), DEFAULT_FREQUENCY_PENALTY)
         set_value_and_checkbox(self.presence_penalty_input, self.presence_penalty_use,
-                               attributes.get("presence_penalty"), 0.0)
-        set_value_and_checkbox(self.max_tokens_input, self.max_tokens_use, attributes.get("max_completion_tokens"), 256)
+                               attributes.get("presence_penalty"), DEFAULT_PRESENCE_PENALTY)
+        set_value_and_checkbox(self.max_tokens_input, self.max_tokens_use, attributes.get("max_completion_tokens"), DEFAULT_MAX_COMPLETION_TOKENS)
 
-        venice_params = attributes.get("venice_parameters", {})
+        # Handle response_format specially
+        response_format = attributes.get("response_format")
+        self.response_format_use.setChecked(response_format is not None)
+        if response_format is not None:
+            self.response_format_input.setText(json.dumps(response_format, indent=4))
+        else:
+            self.response_format_input.setText("{}")
+
+        venice_params = attributes.get("venice_parameters", DEFAULT_VENICE_PARAMS)
 
         # 🧠 Include Venice Param Master Toggle
         self.include_venice_params.setChecked(bool(venice_params))
@@ -636,7 +695,6 @@ class PromptEditor(QMainWindow):
         has_web_search = "enable_web_search" in venice_params
         self.enable_web_search_use.setChecked(has_web_search)
         if has_web_search:
-            # self.enable_web_search_input.setCurrentText(venice_params["enable_web_search"])
             web_mode = venice_params.get("enable_web_search", "")
             self.enable_web_search_input.setCurrentText(web_mode)
 
@@ -646,13 +704,13 @@ class PromptEditor(QMainWindow):
         if has_slug:
             self.character_slug_input.setText(venice_params["character_slug"])
 
-        # 🧠 Response Format
-        has_response_format = "response_format" in venice_params
-        self.response_format_use.setChecked(has_response_format)
-        if has_response_format:
-            self.response_format_input.setText(json.dumps(
-                venice_params["response_format"], indent=4
-            ))
+        # # 🧠 Response Format
+        # has_response_format = "response_format" in venice_params
+        # self.response_format_use.setChecked(has_response_format)
+        # if has_response_format:
+        #     self.response_format_input.setText(json.dumps(
+        #         venice_params["response_format"], indent=4
+        #     ))
 
     def update_prompt_list(self):
         self.prompt_list.clear()
@@ -674,15 +732,30 @@ class PromptEditor(QMainWindow):
 
         def add_if_checked(field, checkbox, key):
             if checkbox.isChecked():
-                default_attributes[key] = field.value() if isinstance(field,
-                                                                      (QSpinBox, QDoubleSpinBox)) else field.text()
+                if isinstance(field, (QSpinBox, QDoubleSpinBox)):
+                    default_attributes[key] = field.value()
+                elif isinstance(field, QTextEdit) or isinstance(field, QPlainTextEdit):
+                    # For text fields that might contain JSON
+                    try:
+                        if key == "response_format":
+                            default_attributes[key] = json.loads(field.toPlainText() or "{}")
+                        else:
+                            default_attributes[key] = field.toPlainText()
+                    except json.JSONDecodeError:
+                        default_attributes[key] = field.toPlainText()
+                else:
+                    default_attributes[key] = field.text()
 
-        # add_if_checked(self.system_prompt_input, self.system_prompt_use, "system_prompt")
+        # Add standard parameters
         add_if_checked(self.temperature_input, self.temperature_use, "temperature")
         add_if_checked(self.top_p_input, self.top_p_use, "top_p")
         add_if_checked(self.frequency_penalty_input, self.frequency_penalty_use, "frequency_penalty")
         add_if_checked(self.presence_penalty_input, self.presence_penalty_use, "presence_penalty")
         add_if_checked(self.max_tokens_input, self.max_tokens_use, "max_completion_tokens")
+
+        # Handle response_format separately
+        if self.response_format_use.isChecked():
+            default_attributes["response_format"] = response_format_data
 
         if self.include_venice_params.isChecked():
             venice_parameters = {}
@@ -692,20 +765,14 @@ class PromptEditor(QMainWindow):
                 default_attributes["custom_system_prompt_name"] = self.custom_system_prompt_input.currentText()
 
             if self.enable_web_search_use.isChecked():
-                # venice_parameters["enable_web_search"] = self.enable_web_search_input.currentText()
                 selected = self.enable_web_search_input.currentText()
                 venice_parameters["enable_web_search"] = selected
 
             if self.character_slug_use.isChecked():
                 venice_parameters["character_slug"] = self.character_slug_input.text()
 
-            if self.response_format_use.isChecked():
-                venice_parameters["response_format"] = response_format_data
-
-            default_attributes["venice_parameters"] = venice_parameters
-
-        # if venice_parameters:
-        #     default_attributes["venice_parameters"] = venice_parameters
+            if self.include_venice_params.isChecked() and venice_parameters:
+                default_attributes["venice_parameters"] = venice_parameters
 
         self.prompts[self.current_prompt] = {
             "prompt_text": self.prompt_text.toPlainText(),
@@ -713,7 +780,7 @@ class PromptEditor(QMainWindow):
             "subtype": self.prompt_subtype.currentText(),
             "notes": self.prompt_notes.toPlainText(),
             "default_attributes": default_attributes,
-            "prompt_system_use":self.system_prompt_use.isChecked(),
+            "prompt_system_use": self.system_prompt_use.isChecked(),
             "prompt_system_text": self.system_prompt_input.text(),
         }
 
@@ -738,6 +805,7 @@ class PromptEditor(QMainWindow):
 
         # Ensure the current prompt data is updated in memory
         self.update_current_prompt_data()
+        print(self.prompts[self.current_prompt])
 
         # If no file is currently loaded, ask the user where to save
         if not self.prompt_library_file:
@@ -837,6 +905,35 @@ class PromptEditor(QMainWindow):
             # self.save_prompts()  # if I want the prompt file written with the ini file and secrets.
 
         self.update_status_bar(f"Library file: {self.prompt_library_file}")
+        self.init_defaults()
+        logger.info(f"Model: {self.model}")
+
+    def show_output_dialog(self):
+        self.update_current_prompt_data()
+        prompt_data = self.prompts.get(self.current_prompt, {})
+        prompt_text = prompt_data.get("prompt_text", "")
+        attributes = prompt_data.get("default_attributes", {})
+
+        # Get any existing schema from response_format
+        existing_schema = attributes.get("response_format") if isinstance(attributes.get("response_format"),
+                                                                          dict) else None
+
+        # Extract output fields from prompt
+        prompt_template = PromptTemplate(
+            type=prompt_data.get("type", "user"),
+            subtype=prompt_data.get("subtype", ""),
+            prompt_text=prompt_text
+        )
+        output_fields = prompt_template.get_output_placeholders()
+        logger.info(f"Extracted output fields: {output_fields}")
+
+        dialog = OutputFieldDialog(field_names=output_fields, existing_schema=existing_schema)
+        if dialog.exec():
+            updated_schema_json = dialog.updated_schema_json
+            logger.info("Updated schema:")
+            logger.info(updated_schema_json)
+            self.response_format_input.setText(json.dumps(updated_schema_json, indent=4))
+            # self.response_format_use.setChecked(True)
 
     # Other methods
     def show_not_implemented_dialog(self):
