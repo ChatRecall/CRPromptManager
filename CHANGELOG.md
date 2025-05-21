@@ -8,15 +8,24 @@ Removed: Backward-incompatible removals.
 Fixed: Bug fixes.
 Security: Security patches (critical to highlight). 
 
+## Roadmap
+- Implement additional / all prompt attributes and parameters
+- Add ability to use OpenAI
+- Update Chat to use json schema for first call and then ignore subsequently instead of warn and skip
+
+## [0.1.2] - TBD
+### Added
+- Migrated from WrapAIVenice to WrapAI
+- threading support in dialog_prompt_runner.py
+- Updated dialog_prompt_runner.py
+  - to use WSGridLayoutHandler
+  - Added ability to change AI model from the default model and if Chat, to maintain memory in new model
+- Updated for newest version of WrapAI model dropdown streamlining
+- Updated so application, data version and file type changes in settings updates the prompt.json file 
+
 ## [0.1.1] - 2025-04-09
 ### Added
 - CHANGELOG.py
-- NEED TO ADD "PROGRAM" AS ASSOCIATED PROGRAM NAME AND "NAME" IN THE DATA SECTION NOT THE HEADER OF THE PROMPTS.  HEADER APPEARS ALIGNED
-- GET RID OF NAME SINCE IT MIRRORS KEY
-- GET RID OF PROGRAM SINCE IT IS DUPLICATIVE AND WE HAVE APP_NAME NOW IN THE HEADER
-- DO LOOKS LIKE THE FIX IS IN CREVALUATE NOW WHICH DRAWS FROM WRAPAIVENICE IN THE PROMPT STORE MODULE
-
-
 
 ### Changed
 - main.py

@@ -1,9 +1,16 @@
+# dialog_output_format.py
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QComboBox, QDialogButtonBox, QCheckBox
 )
 from typing import Optional
-from WrapAI import SchemaField, SchemaBuilder, extract_schema_fields_from_json, reconcile_schema_fields
+import logging
+
+# Logger Configuration
+logger = logging.getLogger(__name__)
+
+from WrapAI import SchemaField, SchemaBuilder
 
 
 class OutputFieldDialog(QDialog):
@@ -90,7 +97,7 @@ class OutputFieldDialog(QDialog):
             self.input_fields[field.name] = (type_combo, desc_input, required_checkbox)
 
         # Dialog buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)

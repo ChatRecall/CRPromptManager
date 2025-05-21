@@ -1,8 +1,7 @@
 # dialog_placeholder.py
 
 from PySide6.QtWidgets import (
-    QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QDialog,
-    QFileDialog, QDialogButtonBox
+    QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QDialog, QDialogButtonBox
 )
 import logging
 

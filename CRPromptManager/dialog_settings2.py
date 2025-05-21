@@ -7,16 +7,22 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QDir
 
+import logging
+
+# Logger Configuration
+logger = logging.getLogger(__name__)
+
 from WrapSideSix.layouts.grid_layout import (
     WSGridRecord, WSGridLayoutHandler, WSGridPosition
 )
 from WrapSideSix.io.gui_binder import WSGuiBinder
 from WrapSideSix.widgets.line_edit_widget import WSLineButton
 from WrapConfig import INIHandler, RuntimeConfig, SecretsManager
-from WrapAI.info.models import VeniceModels
 
 import WrapSideSix.icons.icons_mat_des
 WrapSideSix.icons.icons_mat_des.qInitResources()
+
+from cp_core import populate_model_combo_list
 
 
 @dataclass
@@ -48,7 +54,7 @@ class SettingsDialog(QDialog):
         self.data_version = QLineEdit()
         self.file_type = QLineEdit()
         self.project_dir = QDir.homePath()
-        self.button_box = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
 
         self.binder = None
         self.init_ui()
@@ -59,14 +65,14 @@ class SettingsDialog(QDialog):
         grid = WSGridLayoutHandler()
 
         grid.add_widget_records([
-            WSGridRecord(QLabel("Required fields"), WSGridPosition(0, 0), alignment=Qt.AlignRight),
+            WSGridRecord(QLabel("Required fields"), WSGridPosition(0, 0), alignment=Qt.AlignmentFlag.AlignRight),
             WSGridRecord(QLabel("Venice API Key"), WSGridPosition(1, 0)),
             WSGridRecord(self.venice_ai_api, WSGridPosition(1, 1)),
             WSGridRecord(QLabel("Default Model"), WSGridPosition(2, 0)),
             WSGridRecord(self.default_model_combobox, WSGridPosition(2, 1)),
 
             WSGridRecord(QLabel(""), WSGridPosition(3, 0), col_span=2),
-            WSGridRecord(QLabel("Optional fields"), WSGridPosition(4, 0), alignment=Qt.AlignRight),
+            WSGridRecord(QLabel("Optional fields"), WSGridPosition(4, 0), alignment=Qt.AlignmentFlag.AlignRight),
             WSGridRecord(QLabel("Default Prompt File"), WSGridPosition(5, 0)),
             WSGridRecord(self.default_prompt_file, WSGridPosition(5, 1)),
 
@@ -100,7 +106,7 @@ class SettingsDialog(QDialog):
     def connect_signals(self):
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        self.venice_ai_api.editingFinished.connect(self.fetch_models_if_valid)
+        self.venice_ai_api.editingFinished.connect(self.on_api_key_changed)
 
     def set_fields(self, header_data=None):
         settings = DialogSettings(
@@ -127,7 +133,7 @@ class SettingsDialog(QDialog):
             self.header_data_ref = header_data
 
         if settings.api_key:
-            self.fetch_models_if_valid()
+            self.populate_default_model_combobox(settings.default_model)
 
     def get_fields(self):
         self.binder.from_gui()
@@ -146,28 +152,20 @@ class SettingsDialog(QDialog):
 
         return True
 
-    def fetch_models_if_valid(self):
+    def on_api_key_changed(self):
+        # Reload the default model from INI/config in case user changed it
+        current_model = self.ini_handler.read_value("CRPromptManager", "default_model")
+        self.populate_default_model_combobox(current_model)
+
+    def populate_default_model_combobox(self, current_model):
         api_key = self.venice_ai_api.text().strip()
         if not api_key:
             return
 
-        models_list, models_dict = self.get_available_models(api_key)
-        self.default_model_combobox.clear()
-
-        for model in models_list:
-            display = f"{model} (Tokens: {models_dict.get(model, 'N/A')})"
-            self.default_model_combobox.addItem(display, model)
-
-        saved = self.ini_handler.read_value("CRPromptManager", "default_model")
-        if saved in models_list:
-            self.default_model_combobox.setCurrentIndex(models_list.index(saved))
-
-    def get_available_models(self, api_key):
-        venice_models = VeniceModels(api_key)
-        venice_models.fetch_models()
-        # model_dict = venice_models.get_model_tokens_dict()
-        model_dict = venice_models.get_model_detail_dict()
-        return sorted(model_dict), model_dict
+        # New refactored call using updated helpers
+        populate_model_combo_list(
+            self.default_model_combobox, current_model, api_key, self.run_time, refresh=False
+        )
 
     def select_default_prompt_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select a file", self.project_dir, "All Files (*)")
@@ -181,6 +179,7 @@ class SettingsDialog(QDialog):
 
         if self.get_fields():
             super().accept()
+            return self.header_data_ref
         else:
             QMessageBox.critical(self, "Error", "Failed to save settings.")
 

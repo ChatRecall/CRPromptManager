@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 import sys
 import json
 from functools import partial
+import copy
 
 import logging
 
@@ -28,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 from WrapSideSix.layouts.grid_layout import WSGridLayoutHandler, WSGridRecord, WSGridPosition
 from WrapSideSix.toolbars.toolbar_icon import WSToolbarIcon, DropdownItem
-# from WrapSideSix.widgets.line_edit_widget import WSLineButton
 from WrapSideSix.widgets.list_widget import WSListSelectionWidget
 
 # from WrapAIVenice import VeniceParameters, WEB_SEARCH_MODES
@@ -40,8 +40,10 @@ from dialog_settings2 import SettingsDialog
 from dialog_output_format import OutputFieldDialog
 from dialog_prompt_runner import PromptRunDialog
 from file_backup import FileBackupManager
-from cp_core import (prompt_types, prompt_subtypes, DEFAULT_SYSTEM_PROMPT, DEFAULT_AI_MODEL,
-                     DEFAULT_TEMPERATURE, DEFAULT_TOP_P,DEFAULT_FREQUENCY_PENALTY,DEFAULT_PRESENCE_PENALTY, DEFAULT_MAX_COMPLETION_TOKENS, DEFAULT_VENICE_PARAMS)
+from cp_core import (prompt_roles, prompt_subtypes, DEFAULT_SYSTEM_PROMPT, DEFAULT_AI_MODEL,
+                     API_KEY_NAME, SECRETS_FILE_NAME, populate_runtime_models,
+                     DEFAULT_TEMPERATURE, DEFAULT_TOP_P, DEFAULT_FREQUENCY_PENALTY, DEFAULT_PRESENCE_PENALTY, DEFAULT_MAX_COMPLETION_TOKENS, DEFAULT_VENICE_PARAMS,
+                     PROMPT_TYPES, display_label)
 
 
 class PromptEditor(QMainWindow):
@@ -153,9 +155,9 @@ class PromptEditor(QMainWindow):
 
         self.run_time = RuntimeConfig()
         self.ini_handler = INIHandler(self.run_time.ini_file_name)
-        self.secrets = SecretsManager(".env")
+        self.secrets = SecretsManager(SECRETS_FILE_NAME)
 
-        self.api_key = self.secrets.get_secret("Venice_API_KEY")
+        self.api_key = self.secrets.get_secret(API_KEY_NAME)
         self.model = DEFAULT_AI_MODEL
 
         self.prompt_file_header = {
@@ -174,6 +176,10 @@ class PromptEditor(QMainWindow):
 
         if not self.api_key:
             self.show_settings()
+
+        # Populate global variables
+        populate_runtime_models(self.api_key, self.run_time)
+
         if self.prompt_library_file:
             logger.debug("Selected folder:", self.prompt_library_file)
 
@@ -429,6 +435,20 @@ class PromptEditor(QMainWindow):
             ":/icons/mat_des/add_24dp.png")
 
         self.toolbar.add_action_to_toolbar(
+            "rename",
+            "Rename Prompt",
+            "Rename selected prompt",
+            self.rename_prompt,
+            ":/icons/mat_des/mode_edit_24dp.png")
+
+        self.toolbar.add_action_to_toolbar(
+            "delete",
+            "Delete Prompt",
+            "Delete selected prompt",
+            self.delete_prompt,
+            ":/icons/mat_des/delete_24dp.png")
+
+        self.toolbar.add_action_to_toolbar(
             "load",
             "Load Prompts",
             "Load prompts from file",
@@ -449,9 +469,14 @@ class PromptEditor(QMainWindow):
         #     self.show_not_implemented_dialog,
         #     ":/icons/mat_des/build_24dp.png")
 
+        # dropdown_run_icons = [
+        #     DropdownItem("Question", partial(self.run_prompt, "Question")),
+        #     DropdownItem("Chat", partial(self.run_prompt, "Chat")),
+        # ]
+
         dropdown_run_icons = [
-            DropdownItem("Question", partial(self.run_prompt, "Question")),
-            DropdownItem("Chat", partial(self.run_prompt, "Chat")),
+            DropdownItem(display_label(ptype), partial(self.run_prompt, ptype))
+            for ptype in PROMPT_TYPES
         ]
 
         self.toolbar.update_dropdown_menu(
@@ -459,27 +484,6 @@ class PromptEditor(QMainWindow):
             icon=":/icons/mat_des/play_arrow_24dp.png",
             dropdown_definitions=dropdown_run_icons
         )
-
-        # self.toolbar.add_action_to_toolbar(
-        #     "run",
-        #     "Run Prompt",
-        #     "Execute prompt",
-        #     self.run_prompt,
-        #     ":/icons/mat_des/play_arrow_24dp.png")
-
-        # self.toolbar.add_action_to_toolbar(
-        #     "refresh",
-        #     "Refresh",
-        #     "Refresh screen",
-        #     self.show_not_implemented_dialog,
-        #     ":/icons/mat_des/refresh_24dp.png")
-
-        # self.toolbar.add_action_to_toolbar(
-        #     "filter",
-        #     "Filter",
-        #     "Toggle Filter",
-        #     self.show_not_implemented_dialog,
-        #     ":/icons/mat_des/filter_alt_24dp.png")
 
         self.toolbar.add_action_to_toolbar(
             "settings",
@@ -519,7 +523,7 @@ class PromptEditor(QMainWindow):
         self.presence_penalty_input.setRange(-2.0, 2.0)
         self.max_tokens_input.setMaximum(10000)
         self.enable_web_search_input.addItems(WEB_SEARCH_MODES)
-        self.prompt_type.addItems(prompt_types)
+        self.prompt_type.addItems(prompt_roles)
         self.prompt_subtype.addItems(prompt_subtypes)
         self.response_format_type.addItems(["json_schema"])
 
@@ -636,6 +640,38 @@ class PromptEditor(QMainWindow):
                 self.prompt_list.setCurrentItem(item)
                 self.set_prompt(item)
 
+    def rename_prompt(self):
+        item = self.prompt_list.currentItem()
+        if not item:
+            QMessageBox.warning(self, "No Selection", "Please select a prompt to rename.")
+            return
+
+        current_name = item.text()
+        new_name, ok = QInputDialog.getText(self, "Rename Prompt", "Enter new prompt name:", text=current_name)
+
+        if not ok or new_name.strip() == "":
+            return
+
+        new_name = new_name.strip()
+        if new_name == current_name:
+            return  # No change
+
+        if new_name in self.prompts:
+            QMessageBox.warning(self, "Name Exists", f"A prompt named '{new_name}' already exists.")
+            return
+
+        # Perform the rename
+        self.prompts[new_name] = self.prompts.pop(current_name)
+        self.current_prompt = new_name
+        self.update_prompt_list()
+
+        # Reselect the renamed item
+        items = self.prompt_list.findItems(new_name, Qt.MatchFlag.MatchExactly)
+        if items:
+            self.prompt_list.setCurrentItem(items[0])
+
+        self.update_status_bar(f"Renamed '{current_name}' to '{new_name}'")
+
     def set_prompt(self, item):
         """Switch to a selected prompt while saving the current one."""
         if self.current_prompt:
@@ -714,7 +750,9 @@ class PromptEditor(QMainWindow):
 
     def update_prompt_list(self):
         self.prompt_list.clear()
-        for key in self.prompts:
+        # for key in self.prompts:
+        #     self.prompt_list.addItem(key)
+        for key in sorted(list(self.prompts.keys()), key=lambda k: k.casefold()):
             self.prompt_list.addItem(key)
 
     def update_current_prompt_data(self):
@@ -784,8 +822,43 @@ class PromptEditor(QMainWindow):
             "prompt_system_text": self.system_prompt_input.text(),
         }
 
-    def delete_prompt(self, item):
-        pass
+    def delete_prompt(self, item=None):
+        """Delete the selected prompt after confirmation."""
+        if not isinstance(item, QWidget) and not hasattr(item, "text"):
+            item = self.prompt_list.currentItem()
+
+        if item is None or not hasattr(item, "text"):
+            QMessageBox.warning(self, "No Selection", "Please select a prompt to delete.")
+            return
+
+        prompt_name = item.text()
+        confirm = QMessageBox.question(
+            self,
+            "Delete Prompt",
+            f"Are you sure you want to delete the prompt '{prompt_name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if confirm == QMessageBox.StandardButton.Yes:
+            # Remove from data and UI
+            if prompt_name in self.prompts:
+                del self.prompts[prompt_name]
+            self.update_prompt_list()
+
+            # If the deleted prompt was active, clear or switch
+            if self.current_prompt == prompt_name:
+                self.current_prompt = None
+                self.prompt_text.clear()
+                self.prompt_notes.clear()
+                # You may want to clear other fields too
+
+                # Automatically select the first available prompt
+                if self.prompt_list.count() > 0:
+                    first_item = self.prompt_list.item(0)
+                    self.prompt_list.setCurrentItem(first_item)
+                    self.set_prompt(first_item)
+
+            self.update_status_bar(f"Deleted prompt '{prompt_name}'")
 
     # IO methods
     def load_prompts_from_file(self):
@@ -899,10 +972,18 @@ class PromptEditor(QMainWindow):
         # self.dialog_settings.set_fields()
         self.dialog_settings.set_fields(self.prompt_file_header if self.prompt_library_file else None)
 
-        if self.dialog_settings.exec():
+        old_header = copy.deepcopy(self.prompt_file_header) if self.prompt_file_header else {}
+        result = self.dialog_settings.exec()
+        if result:
             # self.init_defaults()  # if left in, this doesn't save the values from settings so it overrides them as blank strings
             logger.info(f"Model: {self.model}")
-            # self.save_prompts()  # if I want the prompt file written with the ini file and secrets.
+            # Get updated header info from the dialog instance
+            new_header = self.dialog_settings.header_data_ref or {}
+            if old_header != new_header:
+                self.prompt_file_header = self.dialog_settings.header_data_ref
+                logger.info(f"Updated Header Info: {self.prompt_file_header}")
+                logger.info(f"Header Info: {self.prompt_file_header}")
+                self.save_prompts()  # if I want the prompt file written with the ini file and secrets.
 
         self.update_status_bar(f"Library file: {self.prompt_library_file}")
         self.init_defaults()
